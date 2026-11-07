@@ -24,6 +24,36 @@ MIGRATION_PROMPT = (
     "}\n"
 )
 
+def get_candidate_models() -> list[str]:
+    """Dynamically fetches all active generative models available to this API key."""
+    try:
+        candidates = []
+        for m in client.models.list():
+            model_id = m.name.split("/")[-1]
+            lower_id = model_id.lower()
+            # Filter out embedding, image, audio-only, or experimental evaluation models
+            if any(term in lower_id for term in ["embed", "imagen", "veo", "aqa", "bison"]):
+                continue
+            candidates.append(model_id)
+
+        # Prioritize 3.8-flash, then other flash models, then any general model
+        def priority(name: str) -> int:
+            if "3.8-flash" in name:
+                return 0
+            if "flash" in name:
+                return 1
+            return 2
+
+        candidates.sort(key=priority)
+        if candidates:
+            print(f"[+] Discovered valid models for this API key: {candidates}")
+            return candidates
+    except Exception as e:
+        print(f"[-] Could not dynamically list models: {e}")
+
+    # Fallback default
+    return ["gemini-3.8-flash"]
+
 def migrate_lambda_code(source_code: str, requirements: str, target_version: str = "python3.12") -> dict:
     prompt = (
         f"Target AWS Lambda Runtime: {target_version}\n\n"
@@ -31,11 +61,10 @@ def migrate_lambda_code(source_code: str, requirements: str, target_version: str
         f"DEPENDENCIES:\n{requirements}\n"
     )
 
-    # Alternate between flash and pro tiers
-    models_to_try = ["gemini-3.8-flash", "gemini-3.8-pro"]
+    models_to_try = get_candidate_models()
 
     for model_name in models_to_try:
-        for attempt in range(3):
+        for attempt in range(5):
             try:
                 print(f"[+] Requesting refactoring from {model_name} (Attempt {attempt + 1})...")
                 response = client.models.generate_content(
@@ -48,15 +77,15 @@ def migrate_lambda_code(source_code: str, requirements: str, target_version: str
                     )
                 )
                 return json.loads(response.text)
-            except ServerError as e:
-                wait_sec = 5 * (attempt + 1)
+            except ServerError:
+                wait_sec = (attempt + 1) * 5
                 print(f"[-] {model_name} busy (503). Retrying in {wait_sec}s...")
                 time.sleep(wait_sec)
             except ClientError as e:
-                print(f"[-] Client error on {model_name}: {e}")
+                print(f"[-] Client error on {model_name}: {e}. Skipping to next valid model...")
                 break
             except Exception as e:
-                print(f"[-] Transient error: {e}. Retrying in 4s...")
+                print(f"[-] Transient error on {model_name}: {e}. Retrying in 4s...")
                 time.sleep(4)
 
     raise RuntimeError("Failed to reach Gemini after retrying across available models.")
