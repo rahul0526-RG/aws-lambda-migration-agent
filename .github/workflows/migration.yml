@@ -1,0 +1,59 @@
+name: AWS Lambda Python Migration Agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_runtime:
+        description: 'Target Python Runtime'
+        required: true
+        default: 'python3.12'
+        type: choice
+        options:
+          - 'python3.12'
+          - 'python3.13'
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Agent Dependencies
+        run: |
+          pip install google-genai pyyaml pydantic gitpython docker
+
+      - name: Run Migration Agent
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TARGET_RUNTIME: ${{ inputs.target_runtime }}
+        run: |
+          python agent.py
+
+      - name: Create Pull Request with Upgraded Code
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH_NAME="migrate-${{ inputs.target_runtime }}-$(date +%s)"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH_NAME"
+          git add .
+          git commit -m "chore(lambda): migrate runtime to ${{ inputs.target_runtime }}" || exit 0
+          git push origin "$BRANCH_NAME"
+          gh pr create \
+            --title "Automated Migration to ${{ inputs.target_runtime }}" \
+            --body "This PR was generated automatically by the AI Migration Agent. Code refactored and verified inside official AWS Lambda containers." \
+            --base main \
+            --head "$BRANCH_NAME"
