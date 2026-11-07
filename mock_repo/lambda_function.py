@@ -2,18 +2,20 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-def strtobool(val: str) -> bool:
-    """Convert a string representation of truth to True or False."""
-    val = val.lower()
-    if val in ("y", "yes", "t", "true", "on", "1"):
+def strtobool(val: str | bool) -> bool:
+    """Convert a string or boolean representation of truth to True or False."""
+    if isinstance(val, bool):
+        return val
+    val_clean = str(val).strip().lower()
+    if val_clean in ("y", "yes", "t", "true", "on", "1"):
         return True
-    elif val in ("n", "no", "f", "false", "off", "0"):
+    if val_clean in ("n", "no", "f", "false", "off", "0"):
         return False
     raise ValueError(f"invalid truth value {val!r}")
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     current_time = datetime.now(timezone.utc).isoformat()
-    is_active = strtobool(event.get("is_active", "true"))
+    is_active = strtobool(event.get("is_active", True))
     
     return {
         "statusCode": 200,
