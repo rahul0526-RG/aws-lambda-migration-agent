@@ -31,10 +31,11 @@ def migrate_lambda_code(source_code: str, requirements: str, target_version: str
         f"DEPENDENCIES:\n{requirements}\n"
     )
 
-    models_to_try = ["gemini-3.8-flash", "gemini-2.5-flash"]
+    # Active production models
+    models_to_try = ["gemini-3.1-flash-lite", "gemini-3-flash", "gemini-3.8-flash"]
 
     for model_name in models_to_try:
-        for attempt in range(3):
+        for attempt in range(4):
             try:
                 print(f"[+] Requesting refactoring from {model_name} (Attempt {attempt + 1})...")
                 response = client.models.generate_content(
@@ -48,14 +49,14 @@ def migrate_lambda_code(source_code: str, requirements: str, target_version: str
                 )
                 return json.loads(response.text)
             except ServerError:
-                print("[-] Server busy (503). Retrying in 4 seconds...")
-                time.sleep(4)
+                wait_sec = (attempt + 1) * 3
+                print(f"[-] Server busy (503). Retrying in {wait_sec} seconds...")
+                time.sleep(wait_sec)
             except ClientError as e:
-                if "404" in str(e):
-                    break
-                raise e
+                print(f"[-] Client error on {model_name}: {e}")
+                break
             except Exception as e:
                 print(f"[-] Transient error: {e}. Retrying in 3 seconds...")
                 time.sleep(3)
 
-    raise RuntimeError("Failed to reach Gemini after retrying.")
+    raise RuntimeError("Failed to reach Gemini after retrying across all candidate models.")
